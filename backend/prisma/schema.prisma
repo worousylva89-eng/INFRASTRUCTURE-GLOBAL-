@@ -1,0 +1,306 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id              String   @id @default(uuid())
+  name            String
+  legalName       String?  @map("legal_name")
+  countryCode     String   @map("country_code") @db.Char(2)
+  defaultCurrency String   @map("default_currency") @db.Char(3) @default("XOF")
+  timezone        String   @default("Africa/Porto-Novo")
+  locale          String   @default("fr-FR") @db.VarChar(10)
+  kycLevel        Int      @map("kyc_level") @default(0)
+  status          String   @default("active")
+  createdAt       DateTime @map("created_at") @default(now())
+  updatedAt       DateTime @map("updated_at") @updatedAt
+
+  members         TenantMember[]
+  accounts        Account[]
+  transactions    Transaction[]
+  auditLogs       AuditLog[]
+  documents       Document[]
+
+  @@map("tenants")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  phone           String?
+  passwordHash    String   @map("password_hash")
+  firstName       String?  @map("first_name")
+  lastName        String?  @map("last_name")
+  countryCode     String   @map("country_code") @db.Char(2)
+  kycLevel        Int      @map("kyc_level") @default(0)
+  mfaEnabled      Boolean  @map("mfa_enabled") @default(false)
+  mfaSecret       String?  @map("mfa_secret")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime @map("created_at") @default(now())
+  updatedAt       DateTime @map("updated_at") @updatedAt
+
+  members         TenantMember[]
+  sessions        Session[]
+  otpCodes        OtpCode[]
+  kycDocuments    KycDocument[]
+  auditLogs       AuditLog[]
+
+  @@map("users")
+}
+
+model TenantMember {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  userId      String   @map("user_id")
+  role        String
+  permissions Json     @default("{}")
+  joinedAt    DateTime @map("joined_at") @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@map("tenant_members")
+}
+
+model Account {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  type        String
+  currency    String   @db.Char(3)
+  provider    String?
+  externalId  String?  @map("external_id")
+  balance     BigInt   @default(0)
+  status      String   @default("active")
+  createdAt   DateTime @map("created_at") @default(now())
+  updatedAt   DateTime @map("updated_at") @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@map("accounts")
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  accountId   String   @map("account_id")
+  type        String
+  amount      BigInt
+  currency    String   @db.Char(3)
+  reference   String?
+  description String?
+  category    String?
+  occurredAt  DateTime @map("occurred_at")
+  recordedAt  DateTime @map("recorded_at") @default(now())
+  status      String   @default("confirmed")
+  metadata    Json     @default("{}")
+  createdBy   String?  @map("created_by")
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("transactions")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  userId       String?  @map("user_id")
+  action       String
+  resourceType String?  @map("resource_type")
+  resourceId   String?  @map("resource_id") @db.Uuid
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent") @db.Text
+  oldValue     Json?    @map("old_value")
+  newValue     Json?    @map("new_value")
+  createdAt    DateTime @map("created_at") @default(now())
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model Document {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  userId      String?  @map("user_id")
+  type        String
+  filePath    String   @map("file_path")
+  fileHash    String   @map("file_hash")
+  mimeType    String   @map("mime_type")
+  metadata    Json     @default("{}")
+  encrypted   Boolean  @default(true)
+  createdAt   DateTime @map("created_at") @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("documents")
+}
+
+model Session {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  tokenHash         String   @map("token_hash")
+  refreshTokenHash  String?  @map("refresh_token_hash")
+  ipAddress         String?  @map("ip_address")
+  userAgent         String?  @map("user_agent") @db.Text
+  deviceFingerprint String?  @map("device_fingerprint")
+  expiresAt         DateTime @map("expires_at")
+  refreshExpiresAt  DateTime @map("refresh_expires_at")
+  lastUsedAt        DateTime @map("last_used_at") @default(now())
+  createdAt         DateTime @map("created_at") @default(now())
+  revokedAt         DateTime? @map("revoked_at")
+  revokedReason     String?  @map("revoked_reason")
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model LoginAttempt {
+  id            String   @id @default(uuid())
+  email         String
+  ipAddress     String?  @map("ip_address")
+  userAgent     String?  @map("user_agent") @db.Text
+  success       Boolean
+  failureReason String?  @map("failure_reason")
+  attemptedAt   DateTime @map("attempted_at") @default(now())
+
+  @@map("login_attempts")
+}
+
+model OtpCode {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  type          String
+  code          String
+  channel       String
+  attemptsCount Int      @map("attempts_count") @default(0)
+  maxAttempts   Int      @map("max_attempts") @default(5)
+  expiresAt     DateTime @map("expires_at")
+  used          Boolean  @default(false)
+  usedAt        DateTime? @map("used_at")
+  ipAddress     String?  @map("ip_address")
+  createdAt     DateTime @map("created_at") @default(now())
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("otp_codes")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  usedAt    DateTime? @map("used_at")
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @map("created_at") @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+model MfaBackupCode {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  codeHash  String   @map("code_hash")
+  used      Boolean  @default(false)
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @map("created_at") @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("mfa_backup_codes")
+}
+
+model SecurityEvent {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  tenantId  String?  @map("tenant_id")
+  eventType String   @map("event_type")
+  severity  String   @default("info")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent") @db.Text
+  details   Json     @default("{}")
+  createdAt DateTime @map("created_at") @default(now())
+
+  @@map("security_events")
+}
+
+model KycDocument {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  tenantId          String?  @map("tenant_id")
+  documentType      String   @map("document_type")
+  documentNumber    String?  @map("document_number")
+  issuingCountry    String   @map("issuing_country") @db.Char(2)
+  expiryDate        DateTime? @map("expiry_date") @db.Date
+  filePath          String   @map("file_path")
+  fileHash          String   @map("file_hash")
+  fileSizeBytes     BigInt?  @map("file_size_bytes")
+  mimeType          String   @map("mime_type")
+  verificationStatus String  @map("verification_status") @default("pending")
+  verifiedBy        String?  @map("verified_by")
+  verifiedAt        DateTime? @map("verified_at")
+  rejectionReason   String?  @map("rejection_reason") @db.Text
+  ocrData           Json?    @map("ocr_data")
+  metadata          Json     @default("{}")
+  createdAt         DateTime @map("created_at") @default(now())
+  updatedAt         DateTime @map("updated_at") @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("kyc_documents")
+}
+
+model KycHistory {
+  id                   String   @id @default(uuid())
+  userId               String   @map("user_id")
+  tenantId             String?  @map("tenant_id")
+  previousLevel        Int      @map("previous_level")
+  newLevel             Int      @map("new_level")
+  reason               String
+  changedBy            String?  @map("changed_by")
+  supportingDocumentId String?  @map("supporting_document_id")
+  createdAt            DateTime @map("created_at") @default(now())
+
+  @@map("kyc_history")
+}
+
+model Permission {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  description     String?  @db.Text
+  requiredKycLevel Int     @map("required_kyc_level") @default(0)
+  category        String   @default("general")
+  isDangerous     Boolean  @map("is_dangerous") @default(false)
+  createdAt       DateTime @map("created_at") @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  role         String
+  permissionId String   @map("permission_id")
+  grantedAt    DateTime @map("granted_at") @default(now())
+  grantedBy    String?  @map("granted_by")
+
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([role, permissionId])
+  @@map("role_permissions")
+}
